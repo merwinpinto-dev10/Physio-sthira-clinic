@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment files (NEVER commit credentials)
+.env
+.env.*
+*.env
+*/.env
+*/.env.*
+!**/.env.example
+
+# Production builds
+dist/
+build/
+*/dist/
+
+# OS and Cache files
+.DS_Store
+*/.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Editor directories
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Local SQLite databases (if any)
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+
+# Local legacy clinic folder (do not push)
+clinic/
