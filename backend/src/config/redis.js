@@ -2,9 +2,38 @@ const https = require('https');
 
 // In-memory fallback if Upstash credentials are missing or unreachable
 const memoryStore = new Map();
+let connected = false;
+
+const getCredentials = () => {
+  let url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  let token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+
+  // If REST variables are not explicitly set, auto-derive from REDIS_URL / UPSTASH_REDIS_URL
+  if ((!url || !token) && (process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL)) {
+    let raw = (process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL).trim();
+    // Normalize typo dis:// -> rediss://
+    if (raw.startsWith('dis://')) {
+      raw = raw.replace(/^dis:\/\//, 'rediss://');
+    }
+    try {
+      const parsed = new URL(raw);
+      if (parsed.hostname && !url) {
+        url = `https://${parsed.hostname}`;
+      }
+      if (parsed.password && !token) {
+        token = decodeURIComponent(parsed.password);
+      }
+    } catch (e) {
+      // URL parse error; credentials stay as configured
+    }
+  }
+
+  return { url, token };
+};
 
 const isConfigured = () => {
-  return Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+  const { url, token } = getCredentials();
+  return Boolean(url && token);
 };
 
 // Raw REST command to Upstash
@@ -15,20 +44,21 @@ const sendCommand = (command, ...args) => {
     }
 
     try {
-      const urlObj = new URL(process.env.UPSTASH_REDIS_REST_URL);
+      const { url, token } = getCredentials();
+      const urlObj = new URL(url);
       const req = https.request({
         hostname: urlObj.hostname,
         path: '/',
         method: 'POST',
         rejectUnauthorized: false,
         headers: {
-          'Authorization': `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         timeout: 5000
       }, (res) => {
         let data = '';
-        res.on('data', chunk => data += chunk);
+        res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
           try {
             if (res.statusCode >= 400) return reject(new Error(data));
@@ -60,18 +90,24 @@ const sendCommand = (command, ...args) => {
 };
 
 const redisClient = {
+  isConfigured,
+  isConnected: () => connected,
+
   connect: async () => {
     if (isConfigured()) {
       try {
         const ping = await sendCommand('PING');
         if (ping === 'PONG') {
+          connected = true;
           console.log('✅ Connected to Upstash Redis via HTTP REST API');
           return;
         }
       } catch (err) {
+        connected = false;
         console.warn('⚠️ Upstash initial ping error, fallback active:', err.message);
       }
     }
+    connected = false;
     console.log('ℹ️ Using in-memory fallback for caching & rate-limiting');
   },
 
